@@ -1,0 +1,4 @@
+python-telegram-bot==20.0
+requests==2.31.0
+pytube==12.1.0
+instaloader==4.9.5

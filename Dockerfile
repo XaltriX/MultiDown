@@ -1,17 +1,18 @@
-# Use an official Python runtime as a base image
-FROM python:3.10-slim
+# Use a slim version of Python 3.12
+FROM python:3.12-slim
 
-# Set the working directory inside the container
-WORKDIR /usr/src/app
+# Install system dependencies (FFmpeg)
+RUN apt-get update && apt-get install -y ffmpeg
 
-# Copy the requirements file to the container
-COPY requirements.txt ./
+# Set up working directory
+WORKDIR /app
 
-# Install the required Python packages
+# Copy requirements and install Python dependencies
+COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code to the container
+# Copy all the bot source code into the container
 COPY . .
 
-# Run the bot
+# Set the command to run your bot
 CMD ["python", "bot.py"]

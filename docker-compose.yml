@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  telegram-bot:
+    build: .
+    container_name: telegram_bot
+    restart: always
+    environment:
+      - BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+    volumes:
+      - ./logs:/app/logs  # optional, if you want to store logs outside the container

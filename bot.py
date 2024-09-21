@@ -1,11 +1,17 @@
 import os
 import subprocess
 import requests
+import asyncio
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, CallbackContext, filters
 from time import time
 from pytube import YouTube
 from instaloader import Instaloader, Post
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Your bot token from Telegram
 BOT_TOKEN = '7339145055:AAE7Olonw5aTAGsc3LxfCUyNVJbSTkaYPpM'
@@ -115,9 +121,15 @@ async def convert_to_mp4(input_file, output_file, update, context):
         
         process.wait()
         
+        if not os.path.exists(output_file):
+            logger.error(f"Output file {output_file} was not created.")
+            return None
+        
     except Exception as e:
-        print(f"Error converting file: {e}")
+        logger.error(f"Error converting file: {e}")
         return None
+    
+    logger.info(f"Conversion completed. Output file: {output_file}")
     return output_file
 
 # Function to download YouTube videos
@@ -133,7 +145,7 @@ async def download_youtube(url, update, context):
         
         return filename
     except Exception as e:
-        print(f"YouTube download error: {str(e)}")
+        logger.error(f"YouTube download error: {str(e)}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Error downloading YouTube video. Please try again or use a different link.")
         return None
 
@@ -150,7 +162,7 @@ async def download_instagram_reel(url, update, context):
         
         return filename
     except Exception as e:
-        print(f"Instagram download error: {str(e)}")
+        logger.error(f"Instagram download error: {str(e)}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Error downloading Instagram Reel. Please try again or use a different link.")
         return None
 
@@ -184,7 +196,7 @@ async def button_callback(update: Update, context: CallbackContext):
         context.user_data['download_type'] = query.data
         keyboard = [[InlineKeyboardButton("Cancel", callback_data='cancel')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(f"Please send the {query.data} link you want to download. Or use /cancel to go back to the main menu.", reply_markup=reply_markup)
+        await query.edit_message_text(f"Please send the {query.data} link(s) you want to download. You can send multiple links, one per line. Or use /cancel to go back to the main menu.", reply_markup=reply_markup)
         return
 
 # Function to handle incoming messages (links)
@@ -194,36 +206,49 @@ async def handle_message(update: Update, context: CallbackContext):
         return
 
     download_type = context.user_data['download_type']
-    url = update.message.text
+    urls = update.message.text.split('\n')
 
-    if download_type == 'youtube':
-        filename = await download_youtube(url, update, context)
-    elif download_type == 'instagram':
-        filename = await download_instagram_reel(url, update, context)
-    else:  # direct link
-        filename = "downloaded_video.mkv"
-        await update.message.reply_text(f"🚀 Starting download from the provided link.")
-        filename = await download_video_with_progress(url, filename, update, context)
+    for url in urls:
+        url = url.strip()
+        if not url:
+            continue
 
-    if filename:
-        if filename.endswith('.mkv'):
-            await update.message.reply_text("✅ Download complete, converting the file to MP4...")
-            mp4_filename = "converted_video.mp4"
-            converted_file = await convert_to_mp4(filename, mp4_filename, update, context)
-            
-            if converted_file:
-                await update.message.reply_text("✅ Conversion complete, sending the file...")
-                await context.bot.send_document(chat_id=update.effective_chat.id, document=open(converted_file, 'rb'))
-                os.remove(filename)
-                os.remove(mp4_filename)
+        try:
+            if download_type == 'youtube':
+                filename = await download_youtube(url, update, context)
+            elif download_type == 'instagram':
+                filename = await download_instagram_reel(url, update, context)
+            else:  # direct link
+                filename = f"downloaded_video_{int(time())}.mkv"
+                await update.message.reply_text(f"🚀 Starting download from the provided link: {url}")
+                filename = await download_video_with_progress(url, filename, update, context)
+
+            if filename:
+                if filename.endswith('.mkv'):
+                    await update.message.reply_text("✅ Download complete, converting the file to MP4...")
+                    mp4_filename = f"converted_video_{int(time())}.mp4"
+                    converted_file = await convert_to_mp4(filename, mp4_filename, update, context)
+                    
+                    if converted_file and os.path.exists(converted_file):
+                        await update.message.reply_text("✅ Conversion complete, sending the file...")
+                        await context.bot.send_document(chat_id=update.effective_chat.id, document=open(converted_file, 'rb'))
+                        os.remove(filename)
+                        os.remove(converted_file)
+                    else:
+                        await update.message.reply_text("❌ Conversion failed. Sending the original file...")
+                        await context.bot.send_document(chat_id=update.effective_chat.id, document=open(filename, 'rb'))
+                        os.remove(filename)
+                else:
+                    await update.message.reply_text("✅ Download complete, sending the file...")
+                    await context.bot.send_document(chat_id=update.effective_chat.id, document=open(filename, 'rb'))
+                    os.remove(filename)
             else:
-                await update.message.reply_text("❌ Conversion failed.")
-        else:
-            await update.message.reply_text("✅ Download complete, sending the file...")
-            await context.bot.send_document(chat_id=update.effective_chat.id, document=open(filename, 'rb'))
-            os.remove(filename)
-    else:
-        await update.message.reply_text("❌ Download failed. Please try again.")
+                await update.message.reply_text(f"❌ Download failed for {url}. Please try again.")
+        except Exception as e:
+            logger.error(f"Error processing {url}: {str(e)}")
+            await update.message.reply_text(f"An error occurred while processing {url}. Please try again later.")
+
+    await update.message.reply_text("All downloads completed. What would you like to do next?", reply_markup=get_main_menu_keyboard())
 
 # Main function to run the bot
 def main():
